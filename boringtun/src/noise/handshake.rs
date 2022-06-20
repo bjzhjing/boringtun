@@ -1,13 +1,15 @@
 // Copyright (c) 2019 Cloudflare, Inc. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use rand_core::OsRng;
-
 use super::{HandshakeInit, HandshakeResponse, PacketCookieReply};
-use crate::crypto::{Blake2s, ChaCha20Poly1305};
+use crate::crypto::Blake2s;
 use crate::noise::errors::WireGuardError;
 use crate::noise::make_array;
 use crate::noise::session::Session;
+use aead::{Aead, AeadInPlace, NewAead, Payload};
+use chacha20poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
+use rand_core::OsRng;
+use std::convert::TryInto;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -48,7 +50,8 @@ fn b2s_hmac2(key: &[u8], data1: &[u8], data2: &[u8]) -> [u8; 32] {
 
 #[inline]
 fn aead_chacha20_seal(ciphertext: &mut [u8], key: &[u8], counter: u64, data: &[u8], aad: &[u8]) {
-    ChaCha20Poly1305::new_aead(key).seal_wg(counter, aad, data, ciphertext);
+    let key = chacha20poly1305::Key::from_slice(key);
+    ChaCha20Poly1305::new(key).encrypt_in_place(counter, aad, data, ciphertext);
 }
 
 #[inline]
@@ -59,9 +62,9 @@ fn aead_chacha20_open(
     data: &[u8],
     aad: &[u8],
 ) -> Result<(), WireGuardError> {
-    ChaCha20Poly1305::new_aead(key)
-        .open_wg(counter, aad, data, plaintext)
-        .map(|_| ())
+    ChaCha20Poly1305::new(key)
+        .decrypt_in_place(counter, aad, data, plaintext)
+        .map_err(|_| WireGuardError::InvalidAeadTag)
 }
 
 #[derive(Debug)]
@@ -551,13 +554,19 @@ impl Handshake {
         }
         // msg.encrypted_cookie = XAEAD(HASH(LABEL_COOKIE || responder.static_public), msg.nonce, cookie, last_received_msg.mac1)
         let key = b2s_hash(LABEL_COOKIE, self.params.peer_static_public.as_bytes()); // TODO: pre-compute
-        let mut cookie = [0u8; 16];
-        ChaCha20Poly1305::new_aead(&key).xopen(
-            packet.nonce,
-            &mac1[0..16],
-            packet.encrypted_cookie,
-            &mut cookie,
-        )?;
+
+        let payload = Payload {
+            aad: &mac1[0..16],
+            msg: packet.encrypted_cookie,
+        };
+        let plaintext = XChaCha20Poly1305::new_from_slice(&key)
+            .unwrap()
+            .decrypt(packet.nonce.into(), payload)
+            .map_err(|_| WireGuardError::InvalidAeadTag)?;
+
+        let cookie = plaintext
+            .try_into()
+            .map_err(|_| WireGuardError::InvalidPacket)?;
         self.cookies.write_cookie = Some(cookie);
         Ok(())
     }
@@ -655,7 +664,7 @@ impl Handshake {
         let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
         // msg.encrypted_timestamp = AEAD(key, 0, TAI64N(), initiator.hash)
         let timestamp = self.stamper.stamp();
-        aead_chacha20_seal(encrypted_timestamp, &key, 0, &timestamp, &hash);
+        aead_chacha20_seal(encrypted_timestamp, &key, 0, &timestamp, hash);
         // initiator.hash = HASH(initiator.hash || msg.encrypted_timestamp)
         hash = b2s_hash(&hash, encrypted_timestamp);
 
@@ -748,7 +757,7 @@ impl Handshake {
         // responder.hash = HASH(responder.hash || temp2)
         hash = b2s_hash(&hash, &temp2);
         // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
-        aead_chacha20_seal(encrypted_nothing, &key, 0, &[], &hash);
+        aead_chacha20_seal(encrypted_nothing, &key, 0, &[], hash);
 
         // Derive keys
         // temp1 = HMAC(initiator.chaining_key, [empty])

@@ -20,6 +20,8 @@ ip_network_table = "0.2.0"
 ring = "0.16"
 x25519-dalek = { version = "1.2", features = ["reusable_secrets"] }
 rand_core = "0.5.1"
+chacha20poly1305 = "0.9"
+aead = "0.4.3"
 
 [dev-dependencies]
 tracing-subscriber = "0.3"

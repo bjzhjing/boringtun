@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 /// This module implements benchmarking code for use with the FFI bindings
-use crate::crypto::{Blake2s, ChaCha20Poly1305};
+use crate::crypto::Blake2s;
+use aead::{AeadInPlace, NewAead};
 use rand_core::OsRng;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use ring::{agreement, rand};
@@ -150,11 +151,15 @@ fn bench_chacha20poly1305(name: bool, n: usize) -> String {
         return format!("AEAD Seal {}B: ", n);
     }
 
-    let aead = ChaCha20Poly1305::new_aead(&[0u8; 32]);
+    let aead = chacha20poly1305::ChaCha20Poly1305::new_from_slice(&[0u8; 32]).unwrap();
     let buf_in = vec![0u8; n];
     let mut buf_out = vec![0u8; n + 16];
+    let nonce = chacha20poly1305::Nonce::from_slice(b"");
 
-    let result = run_bench(&mut move || aead.seal_wg(0, &[], &buf_in, &mut buf_out) - 16);
+    let result = run_bench(&mut move || {
+        aead.encrypt_in_place_detached(nonce, &[], &mut buf_out);
+        buf_out.len() - 16
+    });
 
     format!("{} MiB/s", format_float(result / (1024. * 1024.)))
 }

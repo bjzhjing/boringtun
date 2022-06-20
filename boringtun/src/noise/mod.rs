@@ -100,7 +100,7 @@ pub struct HandshakeResponse<'a> {
 pub struct PacketCookieReply<'a> {
     pub receiver_idx: u32,
     nonce: &'a [u8],
-    encrypted_cookie: &'a [u8],
+    encrypted_cookie: &'a [u8; 32],
 }
 
 #[derive(Debug)]
