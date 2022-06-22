@@ -125,7 +125,10 @@ fn bench_chacha20poly1305_ring(name: bool, n: usize) -> String {
         return format!("(Ring) AEAD Seal {}B: ", n);
     }
 
-    let key = LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, &[0x0fu8; 32]).unwrap());
+    let mut key_bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut key_bytes);
+
+    let key = LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, &key_bytes).unwrap());
     let mut buf_in = vec![0u8; n + CHACHA20_POLY1305.tag_len()];
 
     let result = run_bench(&mut move || {
