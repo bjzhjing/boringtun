@@ -4,7 +4,7 @@
 /// This module implements benchmarking code for use with the FFI bindings
 use crate::crypto::Blake2s;
 use aead::{AeadInPlace, NewAead};
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use ring::{agreement, rand};
 use x25519_dalek::{PublicKey, StaticSecret};
@@ -126,18 +126,17 @@ fn bench_chacha20poly1305_ring(name: bool, n: usize) -> String {
     }
 
     let key = LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, &[0x0fu8; 32]).unwrap());
-    let mut buf_in = vec![0u8; n + 16];
+    let mut buf_in = vec![0u8; n + CHACHA20_POLY1305.tag_len()];
 
     let result = run_bench(&mut move || {
-        let tag_len = CHACHA20_POLY1305.tag_len();
         let buf_len = buf_in.len();
         key.seal_in_place_separate_tag(
             Nonce::assume_unique_for_key([0u8; 12]),
             Aad::from(&[]),
-            &mut buf_in[..buf_len - tag_len],
+            &mut buf_in[..n],
         )
         .map(|tag| {
-            buf_in[buf_len - tag_len..].copy_from_slice(tag.as_ref());
+            buf_in[n..].copy_from_slice(tag.as_ref());
             buf_len
         })
         .unwrap()
@@ -151,16 +150,20 @@ fn bench_chacha20poly1305(name: bool, n: usize) -> String {
         return format!("AEAD Seal {}B: ", n);
     }
 
-    let aead = chacha20poly1305::ChaCha20Poly1305::new_from_slice(&[0u8; 32]).unwrap();
+    let mut key = [0u8; 32];
+    OsRng.fill_bytes(&mut key);
+
+    let aead = chacha20poly1305::ChaCha20Poly1305::new_from_slice(&key).unwrap();
     let mut buf_out = vec![0u8; n + 16];
     let nonce = chacha20poly1305::Nonce::default();
 
     let result = run_bench(&mut move || {
-        let tag = aead
-            .encrypt_in_place_detached(&nonce, &[], &mut buf_out[..n])
-            .unwrap();
-        buf_out[n..].copy_from_slice(&tag);
-        buf_out.len() - 16
+        aead.encrypt_in_place_detached(&nonce, &[], &mut buf_out[..n])
+            .map(|tag| {
+                buf_out[n..].copy_from_slice(tag.as_ref());
+                n
+            })
+            .unwrap()
     });
 
     format!("{} MiB/s", format_float(result / (1024. * 1024.)))
