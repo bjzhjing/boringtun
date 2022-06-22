@@ -49,21 +49,38 @@ fn b2s_hmac2(key: &[u8], data1: &[u8], data2: &[u8]) -> [u8; 32] {
 }
 
 #[inline]
+/// This wrapper involves an extra copy and MAY BE SLOWER
 fn aead_chacha20_seal(ciphertext: &mut [u8], key: &[u8], counter: u64, data: &[u8], aad: &[u8]) {
     let key = chacha20poly1305::Key::from_slice(key);
-    ChaCha20Poly1305::new(key).encrypt_in_place(counter, aad, data, ciphertext);
+    ciphertext[..data.len()].copy_from_slice(data);
+
+    let mut nonce: [u8; 12] = [0; 12];
+    nonce[4..12].copy_from_slice(&counter.to_le_bytes());
+
+    let tag = ChaCha20Poly1305::new(key)
+        .encrypt_in_place_detached(&nonce.into(), aad, &mut ciphertext[..data.len()])
+        .unwrap();
+    ciphertext[data.len()..].copy_from_slice(&tag);
 }
 
 #[inline]
+/// This wrapper involves an extra copy and MAY BE SLOWER
 fn aead_chacha20_open(
-    plaintext: &mut [u8],
+    buffer: &mut [u8],
     key: &[u8],
     counter: u64,
     data: &[u8],
     aad: &[u8],
 ) -> Result<(), WireGuardError> {
+    let key = chacha20poly1305::Key::from_slice(key);
+    let (ciphertext, tag) = data.split_at(data.len() - 16);
+    buffer.copy_from_slice(ciphertext);
+
+    let mut nonce: [u8; 12] = [0; 12];
+    nonce[4..].copy_from_slice(&counter.to_le_bytes());
+
     ChaCha20Poly1305::new(key)
-        .decrypt_in_place(counter, aad, data, plaintext)
+        .decrypt_in_place_detached(&nonce.into(), aad, buffer, tag.into())
         .map_err(|_| WireGuardError::InvalidAeadTag)
 }
 
@@ -664,7 +681,7 @@ impl Handshake {
         let key = b2s_hmac2(&temp, &chaining_key, &[0x02]);
         // msg.encrypted_timestamp = AEAD(key, 0, TAI64N(), initiator.hash)
         let timestamp = self.stamper.stamp();
-        aead_chacha20_seal(encrypted_timestamp, &key, 0, &timestamp, hash);
+        aead_chacha20_seal(encrypted_timestamp, &key, 0, &timestamp, &hash);
         // initiator.hash = HASH(initiator.hash || msg.encrypted_timestamp)
         hash = b2s_hash(&hash, encrypted_timestamp);
 
@@ -757,7 +774,7 @@ impl Handshake {
         // responder.hash = HASH(responder.hash || temp2)
         hash = b2s_hash(&hash, &temp2);
         // msg.encrypted_nothing = AEAD(key, 0, [empty], responder.hash)
-        aead_chacha20_seal(encrypted_nothing, &key, 0, &[], hash);
+        aead_chacha20_seal(encrypted_nothing, &key, 0, &[], &hash);
 
         // Derive keys
         // temp1 = HMAC(initiator.chaining_key, [empty])

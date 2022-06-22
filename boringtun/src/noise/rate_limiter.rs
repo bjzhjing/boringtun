@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use aead::generic_array::GenericArray;
-use aead::{AeadInPlace, NewAead, Nonce};
+use aead::{AeadInPlace, NewAead};
 use chacha20poly1305::{Key, XChaCha20Poly1305};
 use parking_lot::Mutex;
 use rand_core::{OsRng, RngCore};
@@ -156,14 +156,13 @@ impl RateLimiter {
         //     ciphertext: &mut [u8],
         // ) -> usize {
 
-        let payload = aead::Payload {
-            msg: &cookie[..],
-            aad: mac1,
-        };
-
         let iv = GenericArray::from_slice(nonce);
 
-        cipher.encrypt_in_place_detached(&iv, mac1, &mut encrypted_cookie);
+        let tag = cipher
+            .encrypt_in_place_detached(iv, mac1, &mut encrypted_cookie[..16])
+            .map_err(|_| WireGuardError::DestinationBufferTooSmall)?;
+
+        encrypted_cookie[16..].copy_from_slice(&tag);
 
         // .xseal(nonce, mac1, &cookie[..], encrypted_cookie);
 

@@ -277,7 +277,8 @@ impl Tunn {
             (COOKIE_REPLY, COOKIE_REPLY_SZ) => Packet::PacketCookieReply(PacketCookieReply {
                 receiver_idx: u32::from_le_bytes(make_array(&src[4..8])),
                 nonce: &src[8..32],
-                encrypted_cookie: &src[32..64],
+                encrypted_cookie: <&[u8; 32] as TryFrom<&[u8]>>::try_from(&src[32..64])
+                    .expect("length already checked above"),
             }),
             (DATA, DATA_OVERHEAD_SZ..=std::usize::MAX) => Packet::PacketData(PacketData {
                 receiver_idx: u32::from_le_bytes(make_array(&src[4..8])),

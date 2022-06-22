@@ -152,12 +152,14 @@ fn bench_chacha20poly1305(name: bool, n: usize) -> String {
     }
 
     let aead = chacha20poly1305::ChaCha20Poly1305::new_from_slice(&[0u8; 32]).unwrap();
-    let buf_in = vec![0u8; n];
     let mut buf_out = vec![0u8; n + 16];
-    let nonce = chacha20poly1305::Nonce::from_slice(b"");
+    let nonce = chacha20poly1305::Nonce::default();
 
     let result = run_bench(&mut move || {
-        aead.encrypt_in_place_detached(nonce, &[], &mut buf_out);
+        let tag = aead
+            .encrypt_in_place_detached(&nonce, &[], &mut buf_out[..n])
+            .unwrap();
+        buf_out[n..].copy_from_slice(&tag);
         buf_out.len() - 16
     });
 

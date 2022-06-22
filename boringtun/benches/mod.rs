@@ -7,7 +7,8 @@ extern crate test;
 #[cfg(test)]
 mod tests {
     use boringtun::crypto::Blake2s;
-    use boringtun::crypto::ChaCha20Poly1305;
+    use chacha20poly1305::aead::{AeadInPlace, NewAead};
+    use chacha20poly1305::ChaCha20Poly1305;
     use rand_core::OsRng;
     use test::{black_box, Bencher};
     use x25519_dalek::{PublicKey, StaticSecret};
@@ -43,56 +44,124 @@ mod tests {
 
     #[bench]
     fn bench_chacha20poly1305_seal_192b(b: &mut Bencher) {
-        let pc = ChaCha20Poly1305::new_aead(&[
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32,
-        ]);
+        let pc = ChaCha20Poly1305::new(
+            &[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32,
+            ]
+            .into(),
+        );
         let pt = [0_u8; 192];
         let mut ct = [0_u8; 192 + 16];
+        let counter: u64 = 0;
+        let aad = &[];
         b.iter(|| {
-            black_box(pc.seal_wg(0, &[], &pt, &mut ct));
+            black_box({
+                ct[..pt.len()].copy_from_slice(&pt);
+
+                let mut nonce: [u8; 12] = [0; 12];
+                nonce[4..12].copy_from_slice(&counter.to_le_bytes());
+
+                let tag = pc
+                    .encrypt_in_place_detached(&nonce.into(), aad, &mut ct[..pt.len()])
+                    .unwrap();
+                ct[pt.len()..].copy_from_slice(&tag);
+            });
         });
     }
 
     #[bench]
     fn bench_chacha20poly1305_open_192b(b: &mut Bencher) {
-        let pc = ChaCha20Poly1305::new_aead(&[
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32,
-        ]);
+        let pc = ChaCha20Poly1305::new(
+            &[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32,
+            ]
+            .into(),
+        );
         let mut pt = [0_u8; 192];
         let mut ct = [0_u8; 192 + 16];
+        let counter: u64 = 0;
+        let aad = &[];
 
-        pc.seal_wg(0, &[], &pt, &mut ct);
+        // pc.seal_wg(0, &[], &pt, &mut ct);
+        ct[..pt.len()].copy_from_slice(&pt);
+
+        let mut nonce: [u8; 12] = [0; 12];
+        nonce[4..12].copy_from_slice(&counter.to_le_bytes());
+
+        let tag = pc
+            .encrypt_in_place_detached(&nonce.into(), aad, &mut ct[..pt.len()])
+            .unwrap();
+        ct[pt.len()..].copy_from_slice(&tag);
 
         b.iter(|| {
-            black_box(pc.open_wg(0, &[], &ct, &mut pt).unwrap());
+            black_box({
+                let (ciphertext, tag) = ct.split_at(pt.len());
+                pt.copy_from_slice(ciphertext);
+
+                let mut nonce: [u8; 12] = [0; 12];
+                nonce[4..].copy_from_slice(&counter.to_le_bytes());
+
+                pc.decrypt_in_place_detached(&nonce.into(), aad, &mut pt, tag.into())
+                    .unwrap()
+            });
         });
     }
 
     #[bench]
     fn bench_chacha20poly1305_seal_512b(b: &mut Bencher) {
-        let pc = ChaCha20Poly1305::new_aead(&[
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32,
-        ]);
+        let pc = ChaCha20Poly1305::new(
+            &[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32,
+            ]
+            .into(),
+        );
         let pt = [0_u8; 512];
         let mut ct = [0_u8; 512 + 16];
+        let counter: u64 = 0;
+        let aad = &[];
         b.iter(|| {
-            black_box(pc.seal_wg(0, &[], &pt, &mut ct));
+            black_box({
+                ct[..pt.len()].copy_from_slice(&pt);
+
+                let mut nonce: [u8; 12] = [0; 12];
+                nonce[4..12].copy_from_slice(&counter.to_le_bytes());
+
+                let tag = pc
+                    .encrypt_in_place_detached(&nonce.into(), aad, &mut ct[..pt.len()])
+                    .unwrap();
+                ct[pt.len()..].copy_from_slice(&tag);
+            });
         });
     }
 
     #[bench]
     fn bench_chacha20poly1305_seal_8192b(b: &mut Bencher) {
-        let pc = ChaCha20Poly1305::new_aead(&[
-            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
-            25, 26, 27, 28, 29, 30, 31, 32,
-        ]);
+        let pc = ChaCha20Poly1305::new(
+            &[
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27, 28, 29, 30, 31, 32,
+            ]
+            .into(),
+        );
         let pt = [0_u8; 8192];
         let mut ct = [0_u8; 8192 + 16];
+        let counter: u64 = 0;
+        let aad = &[];
         b.iter(|| {
-            black_box(pc.seal_wg(0, &[], &pt, &mut ct));
+            black_box({
+                ct[..pt.len()].copy_from_slice(&pt);
+
+                let mut nonce: [u8; 12] = [0; 12];
+                nonce[4..12].copy_from_slice(&counter.to_le_bytes());
+
+                let tag = pc
+                    .encrypt_in_place_detached(&nonce.into(), aad, &mut ct[..pt.len()])
+                    .unwrap();
+                ct[pt.len()..].copy_from_slice(&tag);
+            });
         });
     }
 }
