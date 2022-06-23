@@ -58,13 +58,19 @@ fn bench_chacha20poly1305(c: &mut Criterion) {
             },
         );
 
-        group.bench_with_input(BenchmarkId::new("chacha20poly1305", size), &size, |b, i| {
-            let key = [0; 32];
-            let mut buf = vec![0; i + 16];
+        group.bench_with_input(
+            BenchmarkId::new("chacha20poly1305_non_ring", size),
+            &size,
+            |b, i| {
+                let key = [0; 32];
+                let mut buf = vec![0; i + 16];
 
-            b.iter(|| chacha20poly1305(&key, &mut buf));
-        });
+                b.iter(|| chacha20poly1305(&key, &mut buf));
+            },
+        );
     }
+
+    group.finish();
 }
 
 criterion::criterion_group!(chacha20poly1305_benches, bench_chacha20poly1305);
